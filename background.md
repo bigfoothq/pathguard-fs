@@ -425,3 +425,72 @@ Ah, critical misunderstanding corrected. The LLM thinks it's using vanilla `fs`,
 - Do errors leak the real path after symlink resolution? (Could confuse LLM if it sees different path than it requested)
 
 The spec is now mostly about correctness of the fs API wrapping, not about LLM-friendly design.
+
+
+
+----------
+
+NEVERMIND.  WE DONT NEED pathguard-fs at all!!!!
+
+
+Yes, you can specify read/write permissions per specific file or directory with the native model.
+
+Yes, the native permission model supports per-file and per-directory specifications.
+
+**What you can do:**
+
+```bash
+# Specific files
+node --permission \
+  --allow-fs-read=/app/config.json \
+  --allow-fs-read=/app/data.txt \
+  --allow-fs-write=/app/output.log \
+  llm-script.js
+
+# Specific directories  
+node --permission \
+  --allow-fs-read=/app/templates/* \
+  --allow-fs-write=/tmp/* \
+  llm-script.js
+
+# Multiple paths (comma-separated)
+node --permission \
+  --allow-fs-read=/app/config.json,/app/templates/*,/etc/hosts \
+  --allow-fs-write=/tmp/*,/app/logs/* \
+  llm-script.js
+```
+
+**Critical limitations remain:**
+
+1. **Write includes delete** - Can't prevent deletion if allowing writes
+2. **No operation granularity** - Can't distinguish mkdir from file creation
+3. **Directory semantics** - the delete permission is not depending on the file itself its about its parents
+
+**Simplified permission model comparison:**
+
+| Requirement | Native Support | Workaround |
+|------------|----------------|------------|
+| Read specific files | ✓ `--allow-fs-read=/file.txt` | - |
+| Write specific files | ✓ `--allow-fs-write=/file.txt` | - |
+| Read-only directory | ✓ `--allow-fs-read=/dir/*` | - |
+| Write without delete | ✗ | None |
+| Directory creation only | ✗ | None |
+
+**Architecture decision:** If you can accept that write permission includes delete, the native model suffices. Your CLI spawns processes with precise file/directory permissions:
+
+```javascript
+// Your CLI code
+const allowedReads = ['/app/config.json', '/app/data/*'];
+const allowedWrites = ['/tmp/output.txt'];
+
+spawn('node', [
+  '--permission',
+  `--allow-fs-read=${allowedReads.join(',')}`,
+  `--allow-fs-write=${allowedWrites.join(',')}`,
+  'llm-script.js'
+]);
+```
+
+This eliminates pathguard-fs complexity while providing strong isolation per LLM execution.
+
+https://claude.ai/chat/a39c50f4-e956-499b-9116-66ad7dd5f236
